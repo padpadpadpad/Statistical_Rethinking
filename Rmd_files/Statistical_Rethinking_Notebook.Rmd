@@ -1,0 +1,1141 @@
+---
+title: "Statistical rethinking"
+output:
+  html_document: default
+  html_notebook: default
+---
+
+This is my workbook as I read through Statistical Rethinking : A Bayesian course with examples in R and Stan.
+
+## Definitions
+
+- __Parameter__ :  way of indexing possible explanation of the data. For example, a conjectured proportion of of blue marbles in a bag of blue and white marbles.
+- __Likelihood__ : the relative number of ways that a value can produce the data. A mathematical formula that specifies the belief we have in the data.
+    - Likelihood = Pr(data|number of observations & the prior)
+- __Prior probability__ - The belief of any given parameter before the new data is analysed.
+- __Posterior probability__ - The new, updated belief in any given parameter after the new data is analysed.
+    - Posterior = Pr(parameters|data (total number of observations & number of specific outcomes))
+    - Posterior = Likelihood x Prior/Average Likelihood
+- __Credible interval__ - 95% chance that the parameter lies within these intervals
+- __Confidence interval__ - if we repeated the study and analysis a large number of times, then 95% of the computed intervals would contain the true parameter value.
+- __Percentile interval__ - assign equal probability mass to each tail. 
+- __Highest posterior density interval__ - the narrowest interval containing the specified probability mass. Such a region always includes the most probably parameter value.
+- __Probability mass function__ - a probability distribution with only discrete outcomes, usually denoted Pr().
+- __Probability density function__ - a probability distribution with continuous outcomes, usually denoted p().
+- __Probability mass__ - area under a probability density/mass function.
+
+```{r package installation}
+suppressPackageStartupMessages(library(rethinking))
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(tidyverse))
+```
+
+## Chapter 1 The Golem of Prague
+
+- There is a need to learn to build and analyse multiple non-null models of natural phenomena.
+- Introduced Bayesian inference, multilevel models and information theory.
+
+## Chapter 2 Small Worlds and Large Worlds
+
+#### Example One How much of the Earth's surface is covered in water?
+
+To test this, imagine we have a tiny globe we can throw in the air. If it lands on water, we give the result a _w_, otherwise it is a _l_ for land. We have tossed the globe 9 times and observerd _w_ 6 times.
+
+__GRID APPROXIMATION___ makes an approximation of the exact posterior distribution by sampling from a finite grid of parameter values. At any particular value of a parameter, _p'_, it is a simple matter to compute the posterior probability: just multiply the _Pr(prior)_ of _p'_ by the likelihood at _p'_.
+
+Method:
+ - Define the grid. Make a list of the parameter values on the grid.
+ - Compute the prior at each parameter value on the grid.
+ - Compute the likelihood at each parameter value.
+ - Compute the unstandardised posterior at each parameter value (Prior x likelihood).
+ - Standardise the posterior (Divide each value by the sum of all the possible values).
+ 
+```{r example 1 GA}
+# define the grid
+example_1 <- data.frame(p_grid = seq(0, 1, length.out = 40))
+
+# define prior
+example_1$prior <- rep(1, 20)
+
+# compute likelihood at each grid value
+example_1$likelihood <- dbinom(6, 9, example_1$p_grid)
+
+# compute product of likelihood and prior
+example_1$unstd_posterior <- example_1$likelihood*example_1$prior
+
+# standardise posterior so it sums to 1
+example_1$posterior <- example_1$unstd_posterior/sum(example_1$unstd_posterior)
+
+# plot probability of water vs posterior
+ggplot(example_1, aes(p_grid, posterior)) +
+  geom_line() +
+  theme_bw() +
+  xlab('probability of water') +
+  ylab('posterior')
+
+```
+
+
+This does a good job at estimating our single parameter, _p'_ from relatively few points. However, the grid approximation does not scale well with increasing numbers of parameters.
+
+A second approach is the __QUADRATIC APPROXIMATION__. Under quite general conditions, the region near the peak of the posterior distribution will be nearly Gaussian in shape. So the posterior distribution can be usefully approximated using a normal distrubution, that is described completely by its mean and its standard deviation (measure of variance).
+
+The Gaussian approximation is called the "quadratic approximation" because the logarithm of the Gaussian distribution forms a parabola, and a parabola is a quadratic function. So this approximation essentially represents any log-posterior with a parabola.
+
+Method:
+ - Find the posterior mode. This is usually accomplished by some optimisation algorithm. Try to find the peak of parameter space.
+ - Once the peak is found, the curvature near the peak is estimated.
+ 
+To do this we shall use the `rethinking::map` which stands for __maximise a posteriori__ which is another name for the mode of the posterior distribution.
+ 
+```{r example 1 QA}
+globe.qa <- rethinking::map(
+  alist(w ~ dbinom(9, p), # binomial likelhood
+       p ~ dunif(0,1)), # uniform prior
+       data = list(w = 6)) # number of occurrences of water
+
+# display summary of quadratic approximation
+precis(globe.qa)
+```
+
+This can be validated against an exact analytical solution using the beta probability distribution.
+
+```{r example 1 QA plot}
+# analytical calculation
+w <- 6
+n <- 9
+curve(dbeta(x, w+1, n-w+1), from = 0, to = 1, ylab = 'density', xlab = 'proportion water')
+curve(dnorm(x, 0.67, 0.16), col = 'blue', add = TRUE)
+```
+
+The quadratic approximation is usually very similar to the __MAXIMUM LIKELIHOOD ESTIMATION__ and its standard error, a common non-Bayesian parameter estimate.
+
+The Hessian matrix is the second derivative of the Gaussian distribution, and is needed to calculate the standard deviation of the modal estimate.
+
+## Chapter 3 Sampling the Imaginary
+
+Example 2 : Blood test that correctly detects vampirisim 95% of the time. Pr(positive|vampire) = 0.95. However it does sometimes give false positives, one percent of the time, Pr(positive|human) = 0.01. Vampires are rare, 1 in 1000 people are vampires, Pr(Vampire) = 0.001.
+
+Someone has tested positive for being a vampire, whats the probability that he or she is actually a vampire.
+
+$$Pr(vampire|positive) = \frac{Pr(vampire\ \&\ positive)}{Pr(positive)}$$
+
+$$Pr(vampire|positive) = \frac{Pr(positive\ |\ vampire)*Pr(vampire)}{Pr(positive\ |\ vampire)*Pr(vampire) + Pr(positive\ |\ human)}$$
+```{r}
+Pr_vampire = 0.001
+Pr_pos_vamp = 0.95
+Pr_pos_hum <- 0.999 * 0.01
+
+0.95 * 0.001 / (0.95*0.001 + 0.999*0.01)
+```
+
+Whenever the condition of interest is very rare, having a test that finds all the true cases is still no guarantee that a positive result carries much information at all. Most positive results are false positives, even when all the true positives are detected correctly.
+
+Sampling from the posterior distribution of parameters allows us to work out relative plausibility of the values within that distribution. This is essentially what MCMC is doing.
+
+Example using the __grid approximate posterior__. First we need to generate the samples using grid approximation.
+
+```{r example 2 GA}
+# define the grid and prior
+example_2 <- data.frame(p_grid = seq(0, 1, length.out = 1000),
+                        prior = rep(1, 1000))
+# calculate likelihood and posterior
+example_2 <- mutate(example_2, likelihood = dbinom(6, 9, prob = p_grid),
+                    posterior = likelihood*prior/sum(likelihood*prior))
+
+# take 10000 samples from this posterior. Similar to bootstrapping
+samples <- sample(example_2$p_grid, prob = example_2$posterior, size = 1e4, replace = TRUE)
+
+par(mfrow = c(1,2))
+plot(samples, col = 'blue', ylim = c(0, 1))
+dens(samples)
+
+```
+
+
+This crudely replicates the posterior density we have already computed. Now its time to use these samples to understand the posterior.
+
+#### Sampling to summarise
+
+Common questions when summarising the posterior distribution
+- how much posterior probability lies below some parameter value?
+- how much posterior posterior probability lies between two parameter values
+- which parameter values mark the 5% and 95% intervals of the posterior probability
+- which parameter value has the highest probability
+
+These can be done using the sampling method previously
+
+1. How much posterior probability lies below some parameter value?
+
+```{r}
+# amount of probability below 0.5 proportion of water
+# sum all of the occurrences divided by the number of samples to normalise for number of samples
+sum(samples < 0.5)/1e4
+
+# amount of probability between 0.5 and 0.75
+sum(samples > 0.5 & samples < 0.75)/1e4
+```
+
+2. How to find intervals of defined mass?
+
+Credible intervals are intervals of defined mass. For example 95% confidence / credible intervals go from the 5th to the 95th percentile of the data.
+
+Can compute percentile intervals that assign equal probability mass to each tail of the data, or highest posterior density interval, which seeks to find the narrowest interval containing the specified probability mass.
+
+```{r}
+# using percentile intervals
+PI(samples, prob = 0.5)
+# using HDPI
+HPDI(samples, prob = 0.5)
+
+```
+HPDI is more computationally intensive than the PI and suffers from greater simulation variance. That is, it is more sensitive to how many samples you draw from the posterior.
+
+3. Point estimates from the posterior probability and the posterior distribution
+
+It is common to want to report the value of the posterior distribution with the highest posterior probability.
+
+This can be done by taking the maximum a posteriori, MAP, estimate (mode) or the mean or median. These are loss functions, these different loss functions imply different point estimates. The median is the absolute loss whereas the quadratic loss function is the posterior mean.
+
+```{r}
+chainmode(samples, adj = 0.01)
+mean(samples)
+median(samples)
+```
+
+#### Sampling to simulate prediction
+
+Prediction is useful for many reasons:
+- model checking
+- software validation
+- research design
+- forecasting
+
+Worked example using the globe tossing model
+
+```{r example_3}
+# create dummy data
+dummy_data <- rbinom(n = 1e5, size = 20, prob = 0.7) 
+simplehist(dummy_data)
+
+```
+
+Bayesian analyses allow for __propagation of uncertainty__ as we evaluate implied predictions. For each possible value of the parameter, there is an implied distribution of outcomes. If you were to compute the sampling distribution of outcomes at each value of the parameter, then you could average all of these prediction distributions together, using the posterior probabilities of each value of the parameter, to get a __posterior predictive distribution__. The posterior predictive check combines uncertainty about parameters, the posterior distribution, with uncertainty about outcomes, the likelihood function.
+
+This propagation of uncertainty is honest and normally reduces our overconfidence in our predictions.
+
+```{r}
+# simulate predicted observations for a single value of the parameter, say 0.6
+w <- rbinom(1e4, size = 9, prob = 0.6)
+w_posterior_predictive <- rbinom(1e4, size = 9, prob = samples)
+par(mfrow = c(1,2))
+simplehist(w)
+simplehist(w_posterior_predictive)
+
+```
+
+## Chapter 4 Linear Models
+
+These generally use the Gaussian/normal distribution for many reasons:
+- Ontological justification: The world is full of Gaussian distributions, approximately. This is because lots of processes are, at their heart, the addition of fluctuations. These fluctuations combine to cancel each other out as more and more samples are added, thereby converging on a Gaussian distribution.
+- Epistemiological justification: another reason is that it represents a particular state of ignorance, when all we know or are willing to say about its distribution of measures is their mean and variance. The normal distribution is most consistent with our (and our golem's) assumptions.
+
+The probability density of some value, _y_, given a Gaussian distribution with mean, $\mu$, and standard deviation, $\sigma$, is:
+
+$$p(y\ |\ \mu, \sigma) = \frac{1}{\sqrt{2\pi\sigma^2}}exp\left(-\frac{(y - \mu)^2}{2\sigma^2}\right)$$
+
+The gaussian distribution is frequently seen with tau, $\tau$ instead of the standard deviation. This is called the precision and is defined as $\tau = \frac{1}{\sigma^2}$
+
+#### A language for describing models
+
+1. We recognise a set of measurements that we hope to predict or understand, the __outcome__ variable or variables.
+2. For each of these outcome variables, we define a likelihood distribution that defines the plausibility of individual observations. In linear regression, this is always Gaussian.
+3. We recognise a set of other measurements that we hope to use to predict or understand the outcome. Call these __predictor__ variables.
+4. We relate the exact shape of the likelihood distribution - its precise location and variance and other aspects of its shape - to the predictor variables.
+5. We choose priors for all of the parameters in the model. These priors define the initial information state of the model, before seeing the data.
+
+An example of a summary of the model could be:
+$$outcome_i \sim Normal(\mu, \sigma)$$
+$$\mu_i = \beta * predictor$$
+$$\beta \sim Normal(0,\ 10)$$
+$$\sigma \sim HalfCauchy(0,\ 1)$$
+
+When a parameter is defined using $\sim$ it is stochastic, meaning that the variable or parameter is mapped onto a distribution. It is __stochastic__ because no single instance of the variable on the left is known with certainty. Instead, the mapping is probabilistic.
+
+Every posterior is also potentially a prior for a subsequent analysis, so you can process priors just like posteriors.
+
+
+#### Fitting a model with `rethinkging::map`
+
+Fitting a linear model with just the intercept to height data.
+
+Defining parameters :
+$$h_i \sim Normal(\mu, \sigma)$$
+$$\mu \sim Normal(178,\ 20)$$
+$$\sigma \sim Uniform(0,\ 50)$$
+
+```{r}
+# load in the data and remove children
+data(Howell1)
+d <- Howell1 %>%
+  filter(., age >= 18)
+
+# place the model into an "alist"
+flist <- alist(
+  height ~ dnorm(mu, sigma),
+  mu ~ dnorm(178, 20),
+  sigma ~ dunif(0, 50)
+)
+
+# fit the model to the data
+model <- rethinking::map(flist, data = d)
+
+# look at the fit maximum a posteriori model
+precis(model)
+
+```
+
+#### The importance of your priors
+
+A prior can be interpreted as a former posterior inference, from previous data. So it can be useful to talk about the strength of a prior in terms of which data would lead to the same posterior distribution, beginning with a flat prior. 
+
+For a Gaussian prior, we can compute the implied amount of data easily, as there is a formula for the standard deviation, $\sigma$ for a Gaussian posterior with mean, $\mu$ :
+
+$$\sigma_{post} = \frac{1}{\sqrt{n}}$$
+$$n = \frac{1}{\sigma_{post}^2}$$
+
+So the value of n implies that the mean was found around n times in previous studies. The higher the n, the stronger the prior.
+
+#### Sampling from a MAP fit
+
+A quadratic approximation to a posterior distribution with more than one parameter dimension, $\mu$ and $\sigma$ each contribute one dimension, is just a multidimensional Gaussian distribution.
+
+When R constructs a quadratic approximation, it calculates the standard deviations for all parameters, but also the covariances among all pairs of parameters. A list of means and a matrix of variances and covariances are sufficient to describe a multidimensional Gaussian distribution
+
+```{r}
+# variance-covariance matrix - how each paramter relates to every other parameter
+vcov(model)
+
+# two elements of a variance-covariance matrix
+# 1. a vector of variances for the parameters
+diag(vcov(model)) # sqrt of these gives us the standard deviations
+
+# 2. correlation matrix that tells us how changes in any parameter lead to correlated changes in the others
+cov2cor(vcov(model))
+
+# sampling from multivariate models
+samples <- as.data.frame(MASS::mvrnorm(1e4, mu = coef(model), Sigma = vcov(model)))
+precis(samples)
+```
+#### Building a predictor into the model
+
+$$h_i \sim Normal(\mu_i, \sigma)$$
+$$\mu_i = \alpha + \beta x_i $$
+$$\alpha \sim Normal(178,100)$$
+
+$$\beta \sim Normal(0,10)$$
+$$\sigma \sim Uniform(0,\ 50)$$
+
+```{r message=FALSE, fig.height=5, fig.width=15}
+
+linear_mod <- rethinking::map(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b*weight,
+    a ~ dnorm(156,100),
+    b ~ dnorm(0,10),
+    sigma ~ dunif(0,50)
+  ),
+  data = d
+)
+
+# show a table of the estimates and their correlation
+precis(linear_mod, corr = TRUE)
+
+# compute uncertainty of the model predictions
+# rethinking::link takes a map model fit, samples from the posterior distribution and then computes µ for each case in the data and the posterior distribution
+# define weight to compute predictions for
+preds <- data.frame(weight = seq(min(d$weight), max(d$weight), by = 0.1))
+
+# use link to compute mu for each sample from posterior and each weight in weight.seq
+mu <- link(linear_mod, data = data.frame(weight = preds$weight))
+
+# summarise mu distribution
+mu.HPDI <- data.frame(t(apply(mu, 2, HPDI, prob = 0.95))) 
+colnames(mu.HPDI) <- c('low_95', 'high_95')
+preds <- mutate(preds, mean_mu = apply(mu, 2, mean)) %>%
+  cbind(., mu.HPDI)
+
+plot_posterior <- ggplot() +
+  geom_point(aes(weight, height), alpha = 0.75, d) +
+  geom_line(aes(weight, mean_mu), col = 'blue', preds) +
+  geom_ribbon(aes(x = weight, ymin = low_95, ymax = high_95), fill = 'blue', alpha = 0.25, preds)
+
+# posterior prediction incorporating SD and its uncertainty
+
+# simulate heights
+sim_height <- rethinking::sim(linear_mod, data = list(weight = preds$weight))
+height_PI <- data.frame(t(apply(sim_height, 2, PI, prob = 0.95))) 
+colnames(height_PI) <- c('low_95_PI', 'high_95_PI')
+
+# plot posterior predictions
+preds <- cbind(preds, height_PI)
+plot_postpredictions <- ggplot() +
+  geom_point(aes(weight, height), alpha = 0.75, d) +
+  geom_line(aes(weight, mean_mu), col = 'blue', preds) +
+  geom_ribbon(aes(x = weight, ymin = low_95_PI, ymax = high_95_PI), fill = 'blue', alpha = 0.25, preds)
+
+gridExtra::grid.arrange(plot_posterior, plot_postpredictions, ncol = 2)
+
+```
+
+#### Interpreting log transformed models
+
+__No transformations__
+
+$$y = \alpha + \beta x$$
+One unit increase in $x$ is associated with a $\beta$ unit increase in $y$.
+
+__Response transformed__
+
+$$log(y) = \alpha + \beta x$$
+One unit increase in $x$ is associated with a ($\beta$ * 100) percent increase in $y$.
+
+__Predictor transformed__
+
+$$y = \alpha + \beta log(x)$$
+One percent increase in $x$ is associated with a ($\beta$ / 100) unit increase in $y$.
+
+__Response and predictor transformed__
+
+$$log(y) = \alpha + \beta log(x)$$
+One percent increase in $x$ is associated with a $\beta$ percent increase in $y$."
+
+## Chapter 5 Multivariate Linear Models
+
+Multivariate linear models are useful to identify spurious and confounding correlations and variables, such as in Simpson's paradox, where the entire direction of an apparent association between a predictor and outcome can be reversed by considering a confound.
+
+#### Fitting a multivariate model
+
+It is the same as a model with a single predictor. The example uses divorce rate data from the US. We model divorce rate, $D$ against median age at marriage, $A$ and marriage rate, $R$. 
+
+Both of these models give correlations without the other. In other words, both influence divorce rate on their own. However together the model looks like so:
+
+$$D_i \sim Normal(\mu_i, \sigma)$$
+$$\mu_i = \alpha + \beta_R R_i + \beta_A A_i$$
+$$\alpha \sim Normal(10,10)$$
+$$\beta_R \sim Normal(0,1)$$
+$$\beta_A \sim Normal(0,1)$$
+$$\sigma \sim Uniform(0,10)$$
+
+```{r}
+# load in data and normalise predictor variables
+data("WaffleDivorce")
+d <- WaffleDivorce %>%
+  mutate(., MedianAgeMarriage.s = (MedianAgeMarriage-mean(MedianAgeMarriage))/sd(MedianAgeMarriage),
+         Marriage.s = (Marriage - mean(Marriage))/sd(Marriage))
+
+# fitting the model
+model <- rethinking::map(
+  alist(
+    Divorce ~ dnorm(mu, sigma),
+    mu <- a + bR*Marriage.s + bA*MedianAgeMarriage.s,
+    a ~ dnorm(10,10),
+    bR ~ dnorm(0,1),
+    bA ~ dnorm(0,1),
+    sigma ~ dunif(0,10)
+  ),
+  data = d 
+)
+
+precis(model)
+
+plot(precis(model))
+
+
+```
+
+Once we know median age at marriage for a State, there is little or no additional predictive power in also knowing the rate of marriage in that state.
+
+#### Plotting multivariate predictors
+
+##### Predictor residual plots
+
+These plots show the outcome against residual predictor values. A predictor variable is the average prediction error when we use all of the other predictor variables to model a predictor of interest. The benefit of these is, once plotted against the outcome, we have a bivariate regression that has already been "controlled" for all the other predictor variables. It just leaves the variation that is not expected by the model of the mean, $\mu$ as a function of the other predictors.
+
+In this example, to comput the predictor residuals for either `marriage rate` or `median age at marriage`, all we do is us the other predictor to model it. For example, for marriage rate, the model is:
+
+$$R_i \sim Normal(\mu_i, \sigma)$$
+$$\mu_i = \alpha + \beta_A A_i$$
+$$\alpha \sim Normal(0,10)$$
+$$\beta_A \sim Normal(0,1)$$
+$$\sigma \sim Uniform(0,10)$$
+So we fit this model, then compute the residuals by subtracting the observed marriage rate in each State from the predicted rate, based upon using age at marriage.
+ 
+When a residual is positive, the observed rate was in excess of what we'd expect, given the median age at marriage in that State. When a residual is negative, that means the observed rate was below what we'd expect.
+
+```{r}
+# fit model
+model2 <- rethinking::map(
+  alist(
+    Marriage.s ~ dnorm(mu, sigma),
+    mu <- a + bA*MedianAgeMarriage.s,
+    a ~ dnorm(0,10),
+    bA ~ dnorm(0,1),
+    sigma ~ dunif(0,10)
+  ),
+  d
+)
+
+# compute expected value at MAP for each state
+d <- mutate(d, mu = coef(model2)['a'] + coef(model2)['bA']*MedianAgeMarriage.s,
+            m.resid = Marriage.s - mu)
+
+# plot
+ggplot(data = d) +
+  geom_line(aes(MedianAgeMarriage.s, mu)) +
+  geom_errorbar(aes(x = MedianAgeMarriage.s, ymin = mu, ymax = Marriage.s, group = Location), width = 0, linetype = 2) +
+  geom_point(aes(MedianAgeMarriage.s, Marriage.s), col = 'blue')
+
+```
+
+##### Counter factual plots
+
+Counter factual plots display the implied predictions of the model. The simplest use of a counterfactual plot is to see how the predictions change as you change only one predictor at a time. 
+
+```{r}
+# create new data for average Marriage.s
+preds = data.frame(Marriage.s = seq(min(d$Marriage.s), max(d$Marriage.s), length.out = 30), MedianAgeMarriage.s = mean(d$MedianAgeMarriage.s)) 
+
+# compute counterfactual mean divroce
+mu <- link(model, preds)
+mu.HPDI <- data.frame(t(apply(mu, 2, HPDI, prob = 0.95))) 
+colnames(mu.HPDI) <- c('low_95', 'high_95')
+preds <- mutate(preds, mean_mu = apply(mu, 2, mean)) %>%
+  cbind(., mu.HPDI)
+
+# simulate heights
+sims <- rethinking::sim(model, data = preds)
+PI <- data.frame(t(apply(sims, 2, PI, prob = 0.95))) 
+colnames(PI) <- c('low_95_PI', 'high_95_PI')
+
+# plot posterior predictions
+preds <- cbind(preds, PI)
+
+# plot 
+ggplot() +
+  geom_point(aes(Marriage.s, Divorce), d) +
+  geom_line(aes(Marriage.s, mean_mu), preds, col = 'blue') +
+  geom_ribbon(aes(x = Marriage.s, ymin = low_95_PI, ymax = high_95_PI), fill = 'blue', alpha = 0.25, preds) +
+  geom_ribbon(aes(x = Marriage.s, ymin = low_95, ymax = high_95), fill = 'blue', alpha = 0.25, preds)
+
+```
+
+This shows the effect of marriage rate on divorce rate when age is kept constant. 
+
+In the "small world" of the model, these plots make sense. But in reality, is it realistic to be able to change one variable without altering the other? Probably not.
+
+##### Posterior prediction plots
+
+In addition to understanding the estimates, it is important to check the model fit against the observed data. 
+
+```{r, fig.height=4, fig.width=11}
+# simulate predictions, averaging over the posterior
+# call link without specifying new data so it uses the original data
+mu <- link(model)
+# simulate observations
+divorce.sims <- sim(model, n = 1e4)
+  
+# summarise samples across cases and add columns
+d2 <- data.frame(Divorce = d$Divorce,
+                 mu.mean = apply(mu, 2, mean),
+                 mu.PI_low = t(apply(mu, 2, PI, prob = 0.95))[,1],
+                 mu.PI_high = t(apply(mu, 2, PI, prob = 0.95))[,2],
+                 PI_low = t(apply(divorce.sims, 2, PI, prob = 0.95))[,1],
+                 PI_high = t(apply(divorce.sims, 2, PI, prob = 0.95))[,2])
+
+predict_vs_actual <- ggplot(d2) + 
+  geom_point(aes(Divorce, mu.mean), col = 'blue') +
+  geom_abline(aes(slope = 1, intercept = 0)) +
+  geom_errorbar(aes(Divorce, ymin = mu.PI_low, ymax = mu.PI_high), col = 'blue', width = 0) +
+  ylab('predicted divorce rate') +
+  xlab('observed divorce rate')
+
+# compute residuals
+d2 <- mutate(d2, resid = Divorce - mu.mean,
+             State = d$Loc) %>%
+  arrange(., resid)
+
+positions <- as.character(d2$State)
+ggplot(d2) +
+  geom_point(aes(State, resid), col = 'blue') +
+  geom_errorbar(aes(x = State, ymin = Divorce - mu.PI_low, ymax = Divorce - mu.PI_high), width = 0, col = 'blue') +
+  geom_point(aes(State, Divorce - PI_low), alpha = 0.5) +
+  geom_point(aes(State, Divorce - PI_high), alpha = 0.5) +
+  scale_x_discrete(limits = positions) +
+  geom_hline(aes(yintercept = 0), linetype = 2)
+
+```
+
+##### Exploring multicollinearity
+
+Multicollinearity is when there is very strong correlation between two or more predictor variables. The consequence of it is that the posterior distribution will say that a very large range of parameter values are plausible, from tiny associations to massive ones, even if all of the variables are in reality strongly associated with the outcome variable.
+
+The problem that arises in datasets is that we may not anticipate a clash between highly correlated predictors. We shall use the `milk` dataset from the `rethinking` package that looks at properties of primate milk and what controls them. Specifically we will explore whether percent fat or percent lactose better explain changes in total energy content of the milk.
+
+```{r}
+# load in the data
+data(milk)
+d <- milk
+
+# fit the model
+model <- rethinking::map(
+  alist(kcal.per.g ~ dnorm(mu, sigma),
+        mu <- a + bf*perc.fat + bl*perc.lactose,
+        a ~ dnorm(0.6, 10),
+        bf ~ dnorm(0,1),
+        bl ~ dnorm(0,1),
+        sigma ~ dunif(0,10)),
+  data = d,
+  method = "Nelder-Mead",
+  control = list(maxit = 1e5)
+)
+
+precis(model)
+pairs(~ kcal.per.g + perc.fat + perc.lactose, data = d)
+```
+
+Essentially percent fat and percent fat are highly negatively correlated with each other. Consequently these two variables cancel each other, and there are many combinations of the parameters $\beta_L$ and $\beta_f$ that are equally plausible.
+
+__No statistical procedure can substitute for scientific knowledge and attention to it.__
+
+##### Binary categorical variables
+
+In the simplest categorical variable, there are only two categories (i.e. male and female). Dummy variables are devices for encoding categories in quantitative models, `1 = male`, `0 = female`. This does not matter to the model, but it is for correctly interpreting the model.
+
+There are two ways of writing the model for a two category model.
+
+$$y_i \sim Normal(\mu_i, \sigma)$$
+$$\mu_i = \alpha + \beta x_i$$
+$$\alpha \sim Normal(0,10)$$
+$$\beta \sim Normal(0,10)$$
+$$\sigma \sim Uniform(0,50)$$
+
+In this situation, $\alpha$ is the value of the where $x = baseline$ and $\beta$ is the average difference between the two categories.
+
+This can also be reparameterised to look specifically calculate the parameters for the two levels of the factor:
+
+$$y_i \sim Normal(\mu_i, \sigma)$$
+$$\mu_i = \alpha_1 + (\alpha_2 - \alpha_1) x_i$$
+$$\alpha_1 \sim Normal(0,10)$$
+$$\alpha_2 \sim Normal(0,10)$$
+$$\sigma \sim Uniform(0,50)$$
+
+##### Many categories of a categorical variable
+
+To include $k$ categories in a linear model, you require $k - 1$ dummy variables. Each dummy variable indicates, with the value 1, a unique category. This involves many `ifelse()` statements to make unique columns for each level of the factor.
+
+Another way to do this is to construct a vector of intercept parameters, one parameter for each category. A single `id` column in the dataframe codes for which level of the factor a data point belongs to.
+
+```{r}
+# rethinking::glimmer turns an ols lm formula into a more expanded model formula
+data(cars)
+rethinking::glimmer(dist ~ speed, data = cars)
+
+```
+
+## Chapter 6 Overfitting, Regularisaton and Information Criteria
+
+Ockham's razor states that models with fewer assumptions are to be preferred. However, in many cases we have to choose among models that differ in both their accuracy and their simplicity. These are traded off against each other using information criteria and analyses of variance during model simplification.
+
+Instead of Ockham's razor, consider Ulysses' compass. Ulysses was the hero in Homer's Odyssey. During his voyage, Ulysses had to navigate a narrow strait between the many headed beast Scylla - who attacked from a cliff face and gobbled up sailors - and the sea monster Charybis - who pulled boats and men down to a watery grave. Passing too close to either meant disaster. In the context of scientific models, the monsters can be thought of as representing two fundamental types of statistical error:
+
+- Overfitting which lead to poor prediction by learning too much from the data.
+- Underfitting which leads to poor prediction by learning too little from the data.
+
+When understanding how well a model fits a given dataset, there are many ways a given model fit can be examined. The most common way in Gaussian linear models (and beyond) is undoubtedly the $R^2$ value as it is easy to calculate. The $R^2$ of a model fit is the proportion of the variance of the data that is explained by the model:
+
+$$R^2 = \frac{var(outcome) - var(residuals)}{var(outcome)} = 1 - \frac{var(residuals)}{var(outcome)}$$
+
+However, like other measures of fit, $R^2$ increases as more predictor variables are added.
+
+#### Overfitting
+Overfitting occurs when a model learns too much from the sample. This is because there are both _regular_ and _irregular_ features in any given dataset. We want to learn from the _regular_ features because they generalise well or answer a question of interest. Overfitting occurs automatically as we fit too many predictors to our response variable.
+
+#### Information theory
+
+__Information__ - the reduction in uncertainty derived from learning an outcome.
+
+Information theory requires a principled way of quantifying uncertainty that is inherent within a probability distribution:
+
+- The measure of uncertainty should be continuous.
+- The measure of uncertainty should increase as the number of possible events increases.
+- The measure of uncertainty should be additive.
+
+The only function that satisfies these criteria is known as __information entropy__ and has a surprisingly simple definition. The uncertainty contained in a probability distribution is the average log-probability of an event.
+
+__Maximum entropy__ is a family of techniques for finding probability distributions that are most consistent with states of knowledge. In other words, given what we know, what is the _least surprising_ distribution. These methods are commonly used in generalised linear models (GLMs).
+
+So once uncertainty has been quanitifed, we can use information entropy to say how far the model is from its target using __divergence__. __Divergence__ is the the additional uncertainty induced by using probabilities from one distribution to describe another distribution. This is often known as the _Kulblback-Leibler divergence_ or simply K-L divergence, named after the people who first introduced it for this purpose. The divergence is the average difference in the log probability between the target and the model - the difference between the two entropies.
+
+When modelling, you general do not know the absolute distribution of the data, otherwise you would not need to do the model! Luckily, it allows us to compare the relative fit of models as the data terms in the equations cancel each other out when comparing models. Consequently, we can compare the average log-probability from each model to get an estimate of the relative distance of each model from the target. To quantify the relative value of an average log-probability, we can use a model's deviance, which is defined as:
+
+$$D_{(q)} = -2\sum_i log(q_i)$$
+where $i$ indexes each observation and each $q_i$ is just the likelihood of case $i$. Deviance is not divided by the number of cases so it scales with sample size. The log likelihood step can be done in R using `logLik` on most model types.
+
+__Regularised priors__ are sceptical priors that slow the rate of learning from a sample. When tuned properly, regularised priors reduce overfitting while still allowing the model to learn the regular features of a sample. However, if the prior is too sceptical these features will be missed resulting in underfitting. To use regularised priors effectively, you need to be able to tune them. If you have enough data, you can split it into "train" and "test" samples and try different priors and select the one that provides the smallest deviance on the test sample. This is the essence of __cross validation__, a common technique for redicing overfitting.
+
+Akaike Information Criterion, __AIC__ is the most well known information criterion and provides a simple estimate of out-of-sample deviance.
+
+$$AIC = D_{train} + 2p$$
+
+Where $p$ is the number of free parameters to be estimated within the model. AIC provides a measure of predictive accuracy and is only reliable when:
+
+- The priors are flat or overwhelmed by the likelihood.
+- The posterior distribution is approximately multivariate Gaussian.
+- The sample size is much greater than the number of parameters.
+
+Other common and more general criteria are DIC, __Deviance Information Criterion__ and WAIC, the __Widely Applicable Information Criterion__.
+
+__DIC__ is a widely used and easy to compute Bayesian information criterion. DIC is essentially a version of AIC that is aware of informative priors.
+
+__WAIC__ is also calculated by taking averages of log likelihood over the posterior distribution. However, WAIC does not require a multivariate Gaussian posterior and is often more accurate than DIC. WAIC is pointwise, meaning that uncertainty in prediction is considered on a point by point basis, allowing it to handle uncertainty where it actually matters.
+
+Akaike Weights allow comparisons between a set of models. A model's weight is an estimate of the probability that the model will make the best predicitons on new data, given the set of models considered.
+
+Akaike weights can be used for model averaging. A general setup for this could be:
+
+- compute WAIC (or another information criterion) for each model
+- compute the weight for each model
+- compute linear model and simulated outcomes of each model
+- combine these values into an __ensemble__ of predictions, using the model weights as proportions
+
+Model averaging sometimes has no impact on the intervals of $\mu$, but model averaging always helps communicate model uncertainty and helps guard against overconfidence.
+
+## Chapter 7 Interactions
+
+Interactions allow the importance of predictors based on other predictors to be examined. They are central to most statistical models beyong a simple linear regression. In multilevel models, interaction effects are more complex, they allow the impact of a predictor to change depending on other variables and also estimate aspects of the _distribution_ of those changes.
+
+When fitting models, datasets could be split up and separate models ran for each group of a factor to see if any relationships differ. However, this is bad practice and interactions should be built in instead with a global model that fits to the whole dataset because :
+
+- There are usually some parameters, such as $\sigma$ that the model says should not differ between levels of a factor. By splitting the dataframe, we are essentially assuming that variances differs between levels of the factor. There is nothing wrong with this assumption, but we want to avoid _accidental_ assumptions.
+- To acquire probability statements about the variable you used to split the data, it needs to be included in the model.
+- To use information criteria across models, we need models that use the same data.
+- In multilevel mixed effect models, information can be shared across categories of a factor. This is especially true when sample sizes vary across categories such that overfitting risk is higher wihin some categories. Mixed effect models borrow informaton in this way in order to improve estimates in all categories.
+
+### Building an interaction
+
+To build in different slopes to a model a proper interaction effect is necessary. 
+
+An additive model looks like:
+
+$$ Y_i \sim Normal(\mu_i, \sigma)$$
+$$\mu_i = \alpha + \beta_x X_i + \beta_z Z_i$$
+
+For an interaction model, we want to allow the relationship between $Y$ and $X$ to vary as a function of $Z$. Within the model, this relationship is measured by the slope $\beta_x$. Following the strategy of replacing parameters with linear models, the most straightforward way to make $\beta_x$ dependent on $Z$ is to define the slope $\beta_x$ as a linear model itself, one that includes $Z$. This gives a model such as:
+
+$$ Y_i \sim Normal(\mu_i, \sigma)$$
+$$\mu_i = \alpha + \gamma_i X_i + \beta_z Z_i$$
+$$\gamma_i = \beta_x + \beta_{XZ}Z_i$$
+This is the first model with two linear models, but its structure is the same as every Gaussian model we have already fitted. The third line is a _linear interaction effect_ because the equation $\gamma_i$ is a linear model.
+
+This is usually defined in only two lines as:
+
+$$Y_i \sim Normal(\mu_i, \sigma)$$
+$$\mu_i = \alpha + \beta_xX_i + \beta_zZ_i + \beta_{xz}X_iZ_i$$
+
+
+```{r}
+# An example looking at ruggedness and GDP in Africa and other continents
+data(rugged)
+d <- mutate(rugged,
+            log_gdp = log(rgdppc_2000)) %>%
+  drop_na(., log_gdp)
+
+# model 1 - GDP vs ruggedness
+model1 <- rethinking::map(
+  alist(log_gdp ~ dnorm(mu, sigma),
+        mu <- a + bR*rugged,
+        a ~ dnorm(8,100),
+        bR ~ dnorm(0,1),
+        sigma ~ dunif(0,10)
+  ),
+  data = d
+)
+
+# model 2 - GDP vs ruggedness + continent
+model2 <- rethinking::map(
+  alist(log_gdp ~ dnorm(mu, sigma),
+        mu <- a + bR*rugged + bA*cont_africa,
+        a ~ dnorm(8,100),
+        bR ~ dnorm(0,1),
+        bA ~ dnorm(0,1),
+        sigma ~ dunif(0,10)
+  ),
+  data = d
+)
+
+# model 3 - GDP vs ruggedness*continent
+model3 <- rethinking::map(
+  alist(log_gdp ~ dnorm(mu, sigma),
+        mu <- a + gamma*rugged + bA*cont_africa,
+        gamma <- bR + bAR*cont_africa,
+        a ~ dnorm(8,100),
+        bR ~ dnorm(0,1),
+        bA ~ dnorm(0,1),
+        bAR ~ dnorm(0,1),
+        sigma ~ dunif(0,10)
+  ),
+  data = d
+)
+
+compare(model1, model2, model3)
+```
+
+### Plotting the interaction
+
+Plotting the interactions is essentially the same as other ways of plotting Bayesian models using `map`. Essentially we sample the posterior distribution of each of our new x variable using `link`, then compute predictions of $\mu$ and prediction intervals of the mean using `mean()` and `PI()`. To get prediction intervals of the data as well as the mean, we need to simulate new values of `log_GDP` using `sim()` to incorporate sampling uncertainty.
+
+```{r fig.height=5, fig.width = 10}
+rugged_pred <- data.frame(expand.grid(rugged = seq(min(d$rugged), max(d$rugged), by = 0.1), cont_africa = c(0,1)))
+
+# sample posteriors and compute mu and prediction interval of mu
+mu_samp <- link(model3, data = rugged_pred)
+rugged_pred$mu <- apply(mu_samp, 2, mean)
+rugged_pred$PI_low <- t(apply(mu_samp, 2, PI, prob = 0.95))[,1]
+rugged_pred$PI_high <- t(apply(mu_samp, 2, PI, prob = 0.95))[,2]
+rugged_pred$cont <- ifelse(rugged_pred$cont_africa  == 1, 'Africa', 'Not Africa')
+
+d <- mutate(d, cont = ifelse(cont_africa  == 1, 'Africa', 'Not Africa'))
+
+# plot
+ggplot() +
+  geom_point(aes(rugged, log_gdp), data = d) +
+  geom_line(aes(rugged, mu), col = 'blue', rugged_pred) +
+  geom_ribbon(aes(x = rugged, ymin = PI_low, ymax = PI_high), fill = 'blue', alpha = 0.25, rugged_pred) +
+  facet_wrap(~ cont)
+
+
+```
+
+### Interpreting an interaction estimate
+
+When an interaction is added to the model, the meanings of the parameters changes. A "main effect" coefficient in an interaction model does not mean the same as a coefficient of the same name in a model without an interaction.
+
+Since $\gamma$ depends on parameters, and those parameters have a posterior distribution, $\gamma$ must also have a posterior distribution. In fact, anything calculated using parameters has a distribution.
+
+To compute the posterior distribution of the slopes we can process the samples from the posterior.
+
+```{r}
+# process the samples from the posterior
+post <- extract.samples(model3)
+# work out slope when 
+gamma_Af <- data.frame(samp = post$bR + post$bAR*1, cont = 'Africa')
+gamma_notAf <- data.frame(samp = post$bR + post$bAR*0, cont = "Not Africa")
+gamma = rbind(gamma_Af, gamma_notAf)
+
+# plot
+ggplot(gamma) +
+  geom_line(aes(samp, col = cont), stat = 'density') +
+  scale_colour_manual(values = c('blue', 'black'))
+```
+
+From here, these samples can be used to ask a bunch of questions. For example, what is the probability that the slope within Africa is less than the slope outside of Africa.
+
+All we need to do is compute the difference between the slopes, for each sample of the posterior, the ask what proportion of these differences is below 0.
+
+```{r}
+sum((gamma_Af$samp - gamma_notAf$samp) < 0)/nrow(gamma_Af)
+```
+This calculation is the distribution of the _difference_ between the two other distributions. This distribution is not the same as the visual overlap of their marginal distributions.
+
+### Continuous interactions
+
+Continuous interactions often benefit from centreing the prediction variables, which can make it much easier to lean on the coefficients alone in understanding the model. Secondly, sometimes model fitting has a hard time with uncentred variables.
+
+```{r}
+# load data Tulips - look at how water and shade effect number of blooms
+data(tulips)
+
+# centre data - subtract mean value from each value - new data has mean of 0
+d <- mutate(tulips,
+            shade_c = shade - mean(shade),
+            water_c = water - mean(water))
+
+# make model with and without interaction
+model1 <- rethinking::map(
+  alist(
+    blooms ~ dnorm(mu, sigma),
+    mu <- a + bW*water_c + bS*shade_c,
+    a ~ dnorm(130, 100),
+    bW ~ dnorm(0, 100),
+    bS ~ dnorm(0, 100),
+    sigma ~ dunif(0, 100)
+  ),
+  data = d,
+  start = list(a = mean(d$blooms), bW = 0, bS = 0, sigma = sd(d$blooms))
+)
+
+# model 2 - with interaction between water and shade
+model2 <- rethinking::map(
+  alist(
+    blooms ~ dnorm(mu, sigma),
+    mu <- a + bW*water_c + bS*shade_c + bWS*water_c*shade_c,
+    a ~ dnorm(130, 100),
+    bW ~ dnorm(0, 100),
+    bS ~ dnorm(0, 100),
+    bWS ~ dnorm(0, 100),
+    sigma ~ dunif(0, 100)
+  ),
+  data = d,
+  start = list(a = mean(d$blooms), bW = 0, bS = 0, bWS = 0, sigma = sd(d$blooms))
+)
+
+coeftab(model1, model2)
+compare(model1, model2)
+precis(model2)
+
+```
+
+These map models are still very sensitive to start values. Centreing values helps estimation as $\alpha$ essentially becomes `mean(d$blooms)` which is the start value we gave to the model.
+
+### plotting implied predictions
+
+These can be computed and plotted as in previous examples. By creating a dataframe of all possible predictions from the model and plotting them out.
+
+```{r fig.height=8, fig.width=10}
+# create predictions dataframe
+p <- data.frame(expand.grid(shade_c = -1:1, water_c = -1:1))
+
+# sample posterior distribution of mu
+mu_samp <- link(model2, data = p)
+
+# add columns for mu at every value
+p$mu <- apply(mu_samp, 2, mean)
+p$PI_low <- t(apply(mu_samp, 2, PI, prob = 0.95))[,1]
+p$PI_high <- t(apply(mu_samp, 2, PI, prob = 0.95))[,2]
+
+# create plot
+plot_water <- ggplot() +
+  geom_point(aes(water_c, blooms), d) +
+  geom_line(aes(water_c, mu), col = 'blue', p) +
+  geom_ribbon(aes(x = water_c, ymin = PI_low, ymax = PI_high), fill = 'blue', alpha = 0.25, p) +
+  facet_wrap(~ shade_c, labeller = label_both) +
+  theme_bw()
+
+plot_shade <- ggplot() +
+  geom_point(aes(shade_c, blooms), d) +
+  geom_line(aes(shade_c, mu), col = 'green4', p) +
+  geom_ribbon(aes(x = shade_c, ymin = PI_low, ymax = PI_high), fill = 'green4', alpha = 0.25, p) +
+  facet_wrap(~ water_c, labeller = label_both) +
+  theme_bw()
+
+gridExtra::grid.arrange(plot_shade, plot_water, ncol = 1)
+  
+
+```
+
+## Chapter 8 Markov Chain Monte Carlo
+
+Gibbs sampling is a variant of the Metropolis-Hastings algorithm that uses clever proposals allowing more efficient sampling. This sampling allows us to get a good estimate of the posterior distribution with many fewer samples than a comparable Metropolis approach.
+
+The improvement arises from __adaptive proposals__ in which the distribution of the proposed parameter values adjusts itself intelligently, depending upon the parameter values at that moment.
+
+Gibbs sampling achieves these __adaptive proposals__ by depending on particular combinations of prior distributions and likelihoods known as __conjugate pairs__. Conjugate pairs have analytical solutions for the posterior distribution of an individual parameter. And these solutions are what allow Gibbs sampling to make smart jumps around the joint posterior distribution of all parameters.
+
+While the ideas of Markov chain Monte Carlo are not new, widespread use dates only to the last decade of the 20th century due to computation limitations. As such, new variants of MCMC algorithms are still arising, so in 20 years Gibbs sampling and Hamiltonian Monte Carlo (HMC) might look rather pedestrian.
+
+When fitting models with Jags or Stan, it is important to preprocess all data to be in the correct fitting format, and also to trim the dataframe to only contain the necessary data for fitting the model. If there are any NAs in the data, then Stan will likely refuse to work.
+
+### Checking the MCMC chain
+
+A trace plot is the easiest way to check the fit of an MCMC chain. In these plots, we look for stationarity and good mixing. Stationarity refers to the pat staying within the posterior distribution. A well mixing chain means that each successive sample within each parameter is not highly correlated with the sample before it. Visually, this can be seen by the rapid zig-zag motion of each path.
+
+You can control the numer of samples from the chain by using the `iter` and `warmup` parameters. `iter` gives you the total number of samples and `warmup` gives you the number that are discarded. So how many samples do we need for accurate inference about the posterior distribution?
+
+First, what really matters is the __effective__ number of samples, not the raw number. The effective number of samples is an estimate of the number of independent samples from the posterior distribution. Markov chains are typically __autocorrelated__, so that sequential samples are not entirely independent. Stan provides an estimate of effective number of samples as `n_eff`.
+
+MCMC is regularly ran with multiple chains. But how many chains do you need to run? When debugging a model, use a single chain. When checking whether a chain is valid, use multiple chains. Once you're sure it is working, you can use one or multiple chains. It does not really matter. In general, you can live by the motto __four short chains to check, one long chain for inference__.
+
+### Covergence Diagnostics
+
+The default diagnostic output from Stan include two metrics, `n_eff` and `Rhat`. The first is a measure of the effective number of samples. The second is the Gelman Rubin convergence diagnostic, $\hat{R}$. When $\hat{R}$ is above 1.00, it usually indicates that the chain has not yet converged. It is important however not to rely too much on these diagnostics. Like all heuristics, there are cases when they provide bad advice. So view these perhaps as a sign of danger, but never of safety.
+
+### Final chapter comments
+
+Often, a model that is very slow to sample is under-identified. This is an aspect of something Bayesian statistician Andrew Gelman calls the __folk theorem of statistical computing__. When you are having trouble fitting a model, it often indicates a bad model!
+
+### An example with map2stan() and stan()
+
+`map2stan()` is a wrapper for `stan()`. Here I work through an example with both methods to show the similarities and differences.
+
+#### An example with map2stan()
+
+We're going to repeat the procedure for fitting the interaction model of the continent and ruggedness example.
+
+```{r, fig.height=8, fig.width=8, results = 'hide'}
+# An example looking at ruggedness and GDP in Africa and other continents
+data(rugged)
+d <- mutate(rugged,
+            log_gdp = log(rgdppc_2000)) %>%
+  drop_na(., log_gdp) %>%
+  select(., log_gdp, rugged, cont_africa)
+
+# use map2stan()
+model1 <- rethinking::map2stan(
+  alist(log_gdp ~ dnorm(mu, sigma),
+        mu <- a + bR*rugged + bA*cont_africa + bAR*rugged*cont_africa,
+        a ~ dnorm(0,100),
+        bR ~ dnorm(0,10),
+        bA ~ dnorm(0,10),
+        bAR ~ dnorm(0,10),
+        sigma ~ dcauchy(0,2)),
+  data = d
+)
+```
+
+```{r, fig.height = 7, fig.width = 10}
+# can view the raw stan model code
+stancode(model1)
+
+# can use the same functions as before
+precis(model1)
+
+# add more chains
+model1_chains <- map2stan(model1, chains = 4, cores = 2)
+precis(model1_chains)
+
+# visualise samples
+str(post)
+pairs(model1_chains)
+
+# extract DIC and WAIC
+DIC(model1_chains)
+WAIC(model1_chains)
+
+# view traceplot
+plot(model1)
+
+# compute predictions and plot
+p <- data.frame(expand.grid(rugged = seq(min(d$rugged), max(d$rugged), by = 0.1), cont_africa = c(0,1)))
+
+# sample posteriors and compute mu and prediction interval of mu
+mu_samp <- link(model1_chains, data = p)
+
+p$mu <- apply(mu_samp, 2, mean)
+p$PI_low <- t(apply(mu_samp, 2, PI, prob = 0.95))[,1]
+p$PI_high <- t(apply(mu_samp, 2, PI, prob = 0.95))[,2]
+p$cont <- ifelse(p$cont_africa  == 1, 'Africa', 'Not Africa')
+
+# compute simulation of posterior predictive distributions
+sims <- sim(model1, p)
+PI <- data.frame(t(apply(sims, 2, PI, prob = 0.95))) 
+colnames(PI) <- c('low_95_PI', 'high_95_PI')
+p <- cbind(p, PI)
+
+d$cont <- ifelse(d$cont_africa  == 1, 'Africa', 'Not Africa')
+
+# plot
+ggplot() +
+  geom_point(aes(rugged, log_gdp), data = d) +
+  geom_line(aes(rugged, mu), col = 'blue', p) +
+  geom_ribbon(aes(x = rugged, ymin = PI_low, ymax = PI_high), fill = 'blue', alpha = 0.25, p) + 
+  geom_ribbon(aes(x = rugged, ymin = low_95_PI, ymax = high_95_PI), fill = 'blue', alpha = 0.25, p) +
+  facet_wrap(~ cont)
+
+```
+
+
+##### Fit in raw stan code
+
+A model in Stan is slightly different than in Jags and WinBUGS in that you need explicit `data{} parameters{}` and `model{}` definitions.
+
+```{r results='hide'}
+# set up model code
+model_code <- '
+  data{
+    int N;
+    vector[N] log_gdp;
+    vector[N] rugged;
+    vector[N] cont_africa;
+    int Nnew;
+    vector[Nnew] rugged_new;
+    vector[Nnew] cont_africa_new;
+  }
+  parameters{
+    real alpha;
+    real<lower=0> sigma;
+    real bA;
+    real bR;
+    real bAR;
+  }
+  model{
+    vector[N] mu;
+    alpha ~ normal(0,10);
+    bA ~ normal(0,10);
+    bR ~ normal(0,10);
+    bAR ~ normal(0,10);
+    sigma ~ cauchy(0,2);
+    for(i in 1:N){
+      mu[i] = alpha + bA*cont_africa[i] + bR*rugged[i] + bAR*cont_africa[i]*rugged[i];
+    }
+  log_gdp ~ normal(mu, sigma);
+  }
+  generated quantities{
+    vector[Nnew] mu_new;
+    vector[Nnew] sim_new;
+    for(i in 1:Nnew){
+      mu_new[i] = alpha + bA*cont_africa_new[i] + bR*rugged_new[i] + bAR*cont_africa_new[i]*rugged_new[i];
+      sim_new[i] = normal_rng(alpha + bA*cont_africa_new[i] + bR*rugged_new[i] + bAR*cont_africa_new[i]*rugged_new[i], sigma);
+    }
+  }'
+
+# set up datalist
+stan_datalist <- list(N = nrow(d),
+                   rugged = d$rugged,
+                   log_gdp = d$log_gdp,
+                   cont_africa = d$cont_africa,
+                   Nnew = nrow(p),
+                   rugged_new = p$rugged,
+                   cont_africa_new = p$cont_africa)
+
+# setup start values in a function
+start <- function() list(alpha = mean(d$log_gdp), bA = 0, bR = 0, bAR = 0, sigma = 1)
+
+# run Stan
+model_stan <- stan(model_code = model_code, data = stan_datalist, init = start, iter = 1e4, chains = 3)
+```
+
+```{r, fig.height=7, fig.width=10}
+# show fit
+print(model_stan, digits = 2, pars = c('mu_new', 'sim_new'), include = FALSE)
+
+# traceplots of model fit
+traceplot(model_stan, c('alpha', 'bA', 'bR', 'bAR', 'sigma'))
+
+# pairs plot
+pairs(model_stan, pars = c('alpha', 'bA', 'bR', 'bAR'))
+
+# extract samples, keep means and then compute mean, 95% credible intervals for new predictions
+p2 <- p
+mu_samps <- rstan::extract(model_stan, pars = 'mu_new')
+p2$mean <- apply(mu_samps[[1]], 2, quantile, probs=c(0.5))
+p2$lwr_CI <- apply(mu_samps[[1]], 2, quantile, probs=c(0.025))
+p2$upr_CI <- apply(mu_samps[[1]], 2, quantile, probs=c(0.975))
+mu_sims <- rstan::extract(model_stan, pars = "sim_new")
+p2$lwr_PI <- apply(mu_sims[[1]], 2, quantile, probs=c(0.025))
+p2$upr_PI <- apply(mu_sims[[1]], 2, quantile, probs=c(0.975))
+
+# plot
+ggplot() +
+  geom_point(aes(rugged, log_gdp), data = d) +
+  geom_line(aes(rugged, mu), col = 'blue', p2) +
+  geom_ribbon(aes(x = rugged, ymin = lwr_PI, ymax = upr_PI), fill = 'blue', alpha = 0.25, p2) +
+  geom_ribbon(aes(x = rugged, ymin = lwr_CI, ymax = upr_CI), fill = 'blue', alpha = 0.25, p2) +
+  facet_wrap(~ cont)
+
+
+```
+### Chapter 9 Big Entropy and the Generalized Linear Model
+
+

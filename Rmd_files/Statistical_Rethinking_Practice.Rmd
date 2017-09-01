@@ -1,0 +1,889 @@
+---
+title: "Statistical Rethinking Practices"
+output:
+  html_document: default
+  html_notebook: default
+---
+
+```{r include = FALSE}
+suppressPackageStartupMessages(library(rethinking))
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(tidyverse))
+```
+
+
+# Chapter 2
+
+#### EQ1 Which od the expressions below correspond to the statement: _the probability of rain on Monday_
+
+- Pr(rain)
+- __Pr(rain|Monday)__
+- Pr(Monday|rain)
+- Pr(rain, Monday)/Pr(Monday)
+
+#### EQ2 Which of the following statements corresponds to the expression: Pr(Monday|rain)
+
+- The probability of rain on Monday
+- The probability of rain, given that is it Monday
+- __The probability that it is Monday, given that it is raining__
+- The probability that it is Monday and that it is raining
+
+#### EQ3 Which of the expressions below correspond to the statement : the probability that it is a monday given that it is raining
+
+- __Pr(Monday|raining)__
+- Pr(rain|Monday)
+- Pr(rain|Monday) Pr(Monday)
+- __Pr(rain|Monday) Pr(Monday)|Pr(rain)__
+- Pr(Monday|rain) Pr(rain)/Pr(Monday)
+
+#### EQ4
+
+The probability of water is 0.7 means that we have an on average 70% chance of the globe landing on water.
+
+#### MQ1 Recall the globe tossing model from the chapter. Comput and plot the grid approximation posterior distribution for each of the following sets of observations. Assume a uniform prior, _p_ for each.
+
+- W W W
+- W W W L
+- L W W L W W W
+
+```{r}
+C2_MQ1 <- data.frame(p_grid = seq(0, 1, length.out = 20),
+                    prior = rep(1, 20))
+C2_MQ1 <- mutate(C2_MQ1, likelihood1 = dbinom(3, 3, p_grid),
+                likelihood2 = dbinom(3, 4, p_grid),
+                likelihood3 = dbinom(5, 7, p_grid)) %>%
+  gather(., 'key', 'likelihood', c(likelihood1, likelihood2, likelihood3)) %>%
+  group_by(., key) %>%
+  mutate(posterior = likelihood*prior/sum(likelihood*prior)) %>%
+  data.frame()
+
+ggplot(C2_MQ1) +
+  geom_line(aes(p_grid, posterior, col = key)) +
+  theme_bw() +
+  xlab('proportion of water') +
+  ylab('posterior probability')
+
+```
+
+#### MQ2 Now assume a prior for _p'_ that is equal to zero when _p_ < 0.5 and is a postivie constant when _p_ >= 0.5. Again compute and plot the grid approximate posterior distrubution for each of the sets of observations in the problem
+
+```{r}
+C2_MQ2 <- data.frame(p_grid = seq(0, 1, length.out = 20))
+C2_MQ2 <- mutate(C2_MQ2, prior = ifelse(p_grid <= 0.5, 0, 1),
+                likelihood1 = dbinom(3, 3, p_grid),
+                likelihood2 = dbinom(3, 4, p_grid),
+                likelihood3 = dbinom(5, 7, p_grid)) %>%
+  gather(., 'key', 'likelihood', c(likelihood1, likelihood2, likelihood3)) %>%
+  group_by(., key) %>%
+  mutate(posterior = likelihood*prior/sum(likelihood*prior)) %>%
+  data.frame()
+
+ggplot(C2_MQ2) +
+  geom_line(aes(p_grid, posterior, col = key)) +
+  theme_bw() +
+  xlab('proportion of water') +
+  ylab('posterior probability')
+```
+
+#### MQ3 Suppose there are two globes, one for Earth and one for Mars. The Earth globe is 70% covered in water. The Mars globe is 100% land. Further suppose that one of these globes - you dont know which - was tossed in the air and produced a "land" observation. Assume that each globe was equally likely to be tossed. Show that the posterior probability that the globe was the Earth, conditional on seeing "land", Pr(Earth|land) is 0.23.
+
+Pr(Earth|Land) = Pr(Land|Earth) X Pr(Earth)/Pr(Land)
+Pr(Earth|Land) = Likelihood X Prior / Average Likelihood
+
+```{r}
+p_E <- 0.5
+p_M <- 0.5
+
+p_land_E = 0.3 # probability land given Earth p(land|Earth)
+p_land_M = 1.0 # probability land given Mars p(land|Mars)
+
+p_land = p_land_E*p_E + p_land_M*p_M # probability of land
+
+# What is p(Earth|land) ?
+## p(Earth|land) = (p(land|Earth) * p(Earth)) / p(land)
+p_earth_L = (p_land_E * p_E)/p_land
+p_earth_L
+
+```
+#### MQ4 Suppose you have a deck with only three cards. Each card has two sides, and each side is either black of white. One card has two black sides. The second card has one black and one white side. The third card has two white sides. Now suppose all three cards are placed in a bag and shuffled. Someone reaches into the bag and pulls out a card and places it flat on a table. A black side is shown facing up, but you dont know the colour of the side facing down. Show that the probability that the other side is also black is 2/3. Use the counting method to approach this problem. This means counting up the ways that each card could produce the oberved data (a black side facing up on the table)
+
+Using the counting approach
+
+| possible outcomes |First side black | Second side black |
+|:-----------------:|:---------------:|:-----------------:|
+|  b1 -> b2         |         1       |       1           |
+| b2 -> b1          |         1       |       1           |
+| b1 -> w1          |         1       |       0           |
+| w1 -> b1          |         0       |       0           |
+| w1 -> w2          |         0       |       0           |
+| w2 -> w1          |         0       |       0           |
+
+Total outcomes where the first card has a black side-up is 3. Total outcomes where the first card had black side-up, and the second side is also black is 2.
+So, the probability that the second side is black given that the first side was black is 2/3.
+
+#### MQ5 Now suppose there are four cards, B/B, B/W, W/W, B/B. Again suppose a card is drawn from the bag and a black side appears face up. Again calculate the probablity that the other side is black.
+
+$$Pr(black_{2}|black_{1}) = \frac{Pr(black_{1} | black_{2}) Pr(black_{2})}{Pr(black_{1})}$$
+Given that the second side is black, the probability that the first side is black is 1.
+
+$$Pr(black_{1} | black_{2}) = 1$$
+The probability of getting a black on the second side is a half
+
+$$Pr(black_{2}) = 0.5$$
+The probability of getting a black on the first side of a card is 5/8. There are 5 black faces out of a possible 8 faces for the first draw.
+
+$$Pr(black_{1}) = \frac{5}{8}$$
+Consequently the solution is as follows:
+
+$$Pr(black_{2}|black_{1}) = \frac{0.5}{\frac{5}{8}}$$
+$$Pr(black_{2}|black_{1}) = 0.8$$
+
+#### MQ6 Imagine that black ink is heavy, and so cards with black sides are heavier than cards with white sides. As a result, it's less likely that a card with black sides is pulled from the bag. So again assume there are three cards: B/B, B/W, W/W. After experimenting a number of times, you conclude that for every way to pull the B/B card from the bag, there are two ways to pull the B/W card and 3 ways to pull the W/W card. Again suppose that is pulled and the black side appears face up. Show that the probability the other side is black is now 0.5.
+
+#### MQ7 Assume again the original card problem, with a single card showing a black side face up. Before looking at the other side, we draw another card from the bag and lay it face up on the table. The face that is shown on the new card is white. Show that the probability that the first card, the one showing a black side, has black on its other side is now 0.75. Use the counting method, if you can. Hint: Treat this like the sequence of globe tosses, counting all the ways to see each observation, for each possible first card.
+
+#### HQ1 Suppose there are two species of panda bear. Both are equally common in the wild and live in the same place. They look exactly the same and eat the same good, and there is no way of telling them apart. Species A gives birth to twins 10% of the time, otherwise giving birth to a single infant whereas Species B gives birth to twins 20% of the time. You have a female panda in a zoo of unknown spp, and she has just given birth to twins. What is the probability that her next birth will also be twins?
+
+Species one proportion of twins = 0.1
+Species two proportion of twins = 0.2
+
+We have no prior information on which of these we have in the zoo so the prior knowledge is a uniform prior of 0.5 on each.
+
+```{r}
+# possible proportions
+C2_HQ1 <- data.frame(twin_prop = c(0.1, 0.2), prior = c(0.5, 0.5)) 
+
+# work out the likelihood and posterior
+C2_HQ1 <- mutate(C2_HQ1, likelihood = dbinom(1, 1, twin_prop),
+                 posterior = likelihood*prior/sum(likelihood*prior))
+
+C2_HQ1
+
+# probability of twins next time is 2/3 of 0.2
+0.2*2/3 + 0.1*1/3
+
+```
+
+#### HQ2 Recall all the facts from the problem above. Now compute the probability that the panda is from species A, assuming we have observed only the first birth and that it was twins.
+
+From question 1:
+
+$$Pr(species A|twins) = \frac{Pr(twins | species A) Pr(species A)}{Pr(twins)}$$
+
+$$Pr(twins | species A) = 0.1$$
+$$Pr(twins) = 0.1 * 0.5 + 0.2 * 0.5$$
+$$Pr(species A) = 0.5$$
+$$Pr(species A|twins) =  \frac{0.1 * 0.5}{0.15}$$
+
+$$Pr(species A|twins) = \frac{1}{3}$$
+
+#### HQ3 Continuing on from the previous problem, suppose the same panda mother has a second birth and that it is not twins, but a singleton. Compute the posterior probability that this panda is species A.
+
+```{r}
+# possible proportions
+C2_HQ3 <- data.frame(twin_prop = c(0.1, 0.2), prior = c(0.5, 0.5)) 
+
+# work out the likelihood and posterior
+C2_HQ3 <- mutate(C2_HQ1, likelihood = dbinom(1, 2, twin_prop),
+                 posterior = likelihood*prior/sum(likelihood*prior))
+
+C2_HQ3
+
+```
+
+#### HQ4 A common boast of Bayesian statistics is that Bayesian statisticians is that Bayesian inference makes it easy to use all of the data, even if the data are of different types.
+
+#### Suppose now that a vet has a test that can identify the species of our panda. The probability it correctly identifies a species A panda is 0.8. The probability it correctly identifies a species B panda is 0.65.
+
+#### The vet does the test and tells you it is positive for species A. First ignore our previous information and compute the posterior that the panda is species A. Then redo the calculation with the birth data as well.
+
+$$Pr(A|positive\ test\ for\ A) = \frac{Pr(positive\ test\ for\ A | A)\ Pr( A)}{Pr(positive\ test\ \ A)}$$
+
+$$Pr(positive\ test\ for\ A|A) = 0.8$$
+$$Pr(A) = 0.5$$
+$$Pr(positive\ test\ for\ A ) = 0.8*0.5 + 0.35*0.5$$
+
+This includes the false positives we receive when we actually have species B.
+
+$$Pr(A|positive\ test\ for\ A) = \frac{0.8*0.5}{0.8*0.5 + 0.35*0.5}$$
+$$Pr(A|positive\ test\ for\ A) = 0.70$$
+
+With the birth data as well:
+
+We have updated prior information for this problem
+
+$$Pr(A) = 0.36$$
+$$Pr(A|positive\ test\ for\ A) = \frac{Pr(positive\ test\ for\ A | A)\ Pr( A)}{Pr(positive\ test\ \ A)}$$
+
+$$Pr(positive\ test\ for\ A|A) = 0.8$$
+$$Pr(A) = 0.36$$
+$$Pr(positive\ test\ for\ A ) = Pr(positive\ test\ for\ A | speciesA) + Pr(positive\ test\ for\ A | speciesB) = 0.8*0.36 + 0.35*0.64$$
+
+This includes the false positives we receive when we actually have species B.
+
+$$Pr(A|positive\ test\ for\ A) = \frac{0.8*0.36}{0.8*0.36 + 0.35*0.64}$$
+$$Pr(A|positive\ test\ for\ A) = 0.56$$
+
+# Chapter 3
+
+#### Easy 
+
+```{r C3_EQ1}
+C3_EQ1 <- data.frame(p_grid = seq(0, 1, length.out = 1000),
+                     prior = rep(1, 1000)) %>%
+  mutate(., likelihood = dbinom(6, size = 9, prob = p_grid),
+         posterior = likelihood*prior/sum(likelihood*prior))
+set.seed(100)
+samples <- sample(C3_EQ1$p_grid, prob = C3_EQ1$posterior, size = 1e4, replace = TRUE)
+
+# 1. How much posterior probability lies below p = 0.2
+sum(samples < 0.2)/1e4
+# exact method
+sum(C3_EQ1[C3_EQ1$p_grid < 0.2,]$posterior)
+
+# 2. How much posterior probability lies above p = 0.8
+sum(samples > 0.8)/1e4
+sum(C3_EQ1[C3_EQ1$p_grid > 0.8,]$posterior)
+
+# 3. How much posterior probability lies between p = 0.2 and p = 0.8
+quantile(samples, c(0.2, 0.8))
+PI(samples, 0.6)
+
+# 4. 20% of the posterior probability lies below which value of p
+quantile(samples, 0.2)
+
+# 5. 20% of the posterior probability lies above which value of p
+quantile(samples, 0.8)
+
+# 6 & 7. which values of p contain the narrowest interval equal to 66% of the posterior probability. Do the same, but assume equal posterior probability above and below the interval
+HPDI(samples, 0.66)
+PI(samples, 0.66)
+
+```
+
+#### MQ Suppose the globe tossing data had turned out to be 8 water and 15 tosses.
+
+```{r}
+# Q1 construct the posterior distribution using grid approximation
+C3_MQ1 <- data.frame(p_grid = seq(0, 1, length.out = 1000),
+                     prior = rep(1, 1000)) %>%
+  mutate(., likelihood = dbinom(8, size = 15, prob = p_grid),
+         posterior = likelihood*prior/sum(likelihood*prior))
+
+
+# draw 10,000 samples and calculate HPDI 90% for p
+samples <- sample(C3_MQ1$p_grid, prob = C3_MQ1$posterior, 1e4, replace = TRUE)
+par(mfrow = c(1,2))
+dens(samples)
+
+HPDI(samples, 90)
+
+# construct a posterior predictive check for this model and data
+# What is the probability of observing 8 water in 15 tosses?
+PPC <- rbinom(1e4, size = 15, prob = samples)
+simplehist(PPC)
+sum(PPC == 8)/length(PPC)
+
+# Now calculate the probability of observing 6 water in 9 tosses
+# simply would be
+dbinom(6, 9, p = mean(samples))
+# better 
+PPC_9_throws <- rbinom(1e4, size = 9, prob = samples)
+sum(PPC_9_throws == 6)/length(PPC_9_throws)
+
+# change the priors to be 0 below p = 0.5 and constant above 0.5
+C3_MQ1 <- data.frame(p_grid = seq(0, 1, length.out = 1000)) %>%
+  mutate(., prior = ifelse(p_grid < 0.5, 0, 1),
+         likelihood = dbinom(8, size = 15, prob = p_grid),
+         posterior = likelihood*prior/sum(likelihood*prior))
+
+samples <- sample(C3_MQ1$p_grid, prob = C3_MQ1$posterior, 1e4, replace = TRUE)
+par(mfrow = c(1,2))
+dens(samples)
+HPDI(samples, 90)
+PPC <- rbinom(1e4, size = 15, prob = samples)
+simplehist(PPC)
+sum(PPC == 8)/length(PPC)
+
+```
+#### Hard
+
+#### Introduction. The data indicate the gender (male = 1, female = 0) of officially reported first and second born children in 100 two-child families
+
+```{r}
+# load in data
+data(homeworkch3)
+sum(birth1) + sum(birth2)
+
+# using grid approximation, compute the posterior distribution for the probability of a birth being a boy (1)
+
+births <- data.frame(p_grid = seq(0, 1, length.out = 100),
+                     prior = rep(1, 100)) %>%
+  mutate(., likelihood = dbinom(sum(c(birth1, birth2)), size = length(c(birth1, birth2)), prob = p_grid),
+         posterior = likelihood*prior/sum(likelihood*prior))
+
+# find place with highest posterior probability
+births[which.max(births$posterior),]$p_grid
+
+# draw 10000 random parameter values from the posterior distribution. Use these samples to estimate the 50% 89% and 97% highest posterior density intervals
+samples <- sample(births$p_grid, prob = births$posterior, 1e4, replace = TRUE)
+HPDI(samples, 0.5)
+HPDI(samples, 0.89)
+HPDI(samples, 0.97)
+
+# use rbinom to simulate 10000 replicates of 200 births. Compare the distribution of predicted numbers of boys to the actual count in the data
+sims <- data.frame(sims = rbinom(1e4, 200, samples))
+ggplot(sims, aes(sims)) +
+  geom_density() +
+  geom_vline(aes(xintercept = 111), linetype = 2)
+
+# Compare 1000 counts of boys from 100 simulated first borns only to the number of boys in the first births
+births <- data.frame(p_grid = seq(0, 1, length.out = 100),
+                     prior = rep(1, 100)) %>%
+  mutate(., likelihood = dbinom(sum(birth1), size = length(birth1), prob = p_grid),
+         posterior = likelihood*prior/sum(likelihood*prior))
+samps <- data.frame(sample = sample(births$p_grid, prob = births$posterior, 1e4, replace = TRUE)) %>%
+  mutate(., sims = rbinom(1e4, 100, sample))
+
+ggplot(samps, aes(sims)) +
+  geom_density() +
+  geom_vline(aes(xintercept = sum(birth1)), linetype = 2)
+
+# look at independence of sex of first and second child
+simplehist(birth1 - birth2)
+
+
+```
+# Chapter 4
+
+#### Easy
+
+$$y_i \sim Normal(\mu, \sigma)$$
+$$\mu \sim Normal(0,10)$$
+$$\sigma \sim Uniform(0,10)$$
+
+- The likelihood is $y_i \sim Normal(\mu, \sigma)$
+- There are two parameters in the posterior.
+- The appropriate Bayes' theorem for this formula is:
+  - You take the product of both the priors and the single likelihood.
+
+$$p(\mu, \sigma|y) = \frac{\prod_iNormal(h_i|\mu,\sigma)Normal(\mu|0,10), Uniform(\sigma|0,10)}{\int \int \prod_iNormal(h_i|\mu,\sigma)Normal(\mu|0,10), Uniform(\sigma|0,10) d\mu\ d\sigma}$$
+
+#### Medium
+
+##### Model definition
+
+$$y_i \sim Normal(\mu, \sigma)$$
+$$\mu \sim Normal(0,10)$$
+$$\sigma \sim Uniform(0,10)$$
+
+```{r eval = FALSE}
+# map formula of this model
+model <- map(alist(
+  y ~ dnorm(mu, sigma)
+  mu ~ dnorm(0,10)
+  sigma ~ dunif(0,10)
+))
+
+```
+
+##### A sample of students is measured for height each year for three years. You want to see if height varies with year as a predictor. Write the mathematical formula
+
+$$height_i \sim Normal(\mu_i, \sigma)$$
+$$\mu_i = \alpha + \beta year_i$$
+
+$$\alpha \sim Normal(0,10)$$
+$$\beta \sim Normal(0,10)$$
+$$\sigma \sim Uniform(0,100)$$
+
+This uses relatively uniformed priors. If we were told that the average height in the first year was 120cm, we could change the prior for alpha to:
+$\alpha \sim Normal(120, 50)$.
+
+If we were told that the variance among heights for students of the same age is never more than 64cm. We could change our prior for sigma to be $\sigma \sim Uniform(0,100)$
+
+#### Hard
+
+```{r}
+# subset howell1 so its only children
+data(Howell1)
+d <- filter(Howell1, age < 18)
+
+mod <- rethinking::map(alist(
+  height ~ dnorm(mu, sigma),
+  mu <- a + b*weight,
+  a ~ dnorm(0,10),
+  b ~ dnorm(0,10),
+  sigma ~ dunif(0, 100)
+), data = d)
+
+# show model output
+precis(mod)
+
+# plot predictions
+preds <- data.frame(weight = seq(min(d$weight), max(d$weight), by = 0.1))
+
+# use link to compute mu for each sample from posterior and each weight in weight.seq
+mu <- link(mod, data = data.frame(weight = preds$weight))
+
+# summarise mu distribution
+mu.HPDI <- data.frame(t(apply(mu, 2, HPDI, prob = 0.95))) 
+colnames(mu.HPDI) <- c('low_95', 'high_95')
+preds <- mutate(preds, mean_mu = apply(mu, 2, mean))
+
+# posterior prediction incorporating SD and its uncertainty
+# simulate heights
+sim_height <- rethinking::sim(mod, data = list(weight = preds$weight))
+height_PI <- data.frame(t(apply(sim_height, 2, PI, prob = 0.95))) 
+colnames(height_PI) <- c('low_95_PI', 'high_95_PI')
+
+preds <- cbind(preds, mu.HPDI, height_PI)
+
+# plot mean predictions
+plot_posterior <- ggplot() +
+  geom_point(aes(weight, height), alpha = 0.75, d) +
+  geom_line(aes(weight, mean_mu), col = 'blue', preds) +
+  geom_ribbon(aes(x = weight, ymin = low_95, ymax = high_95), fill = 'blue', alpha = 0.25, preds)
+
+# plot posterior predictions
+preds <- cbind(preds, height_PI)
+plot_postpredictions <- ggplot() +
+  geom_point(aes(weight, height), alpha = 0.75, d) +
+  geom_line(aes(weight, mean_mu), col = 'blue', preds) +
+  geom_ribbon(aes(x = weight, ymin = low_95_PI, ymax = high_95_PI), fill = 'blue', alpha = 0.25, preds)
+
+gridExtra::grid.arrange(plot_posterior, plot_postpredictions, ncol = 2)
+
+# this is a bad model
+# should do a polynomial instead
+
+mod2 <- rethinking::map(alist(
+  height ~ dnorm(mu, sigma),
+  mu <- a + b*weight + b1*weight^2,
+  a ~ dnorm(0,10),
+  b ~ dnorm(0,10),
+  b1 ~ dnorm(0,10),
+  sigma ~ dunif(0, 100)
+), data = d)
+
+# show model output
+precis(mod2)
+
+# plot predictions
+preds <- data.frame(weight = seq(min(d$weight), max(d$weight), by = 0.1))
+
+# use link to compute mu for each sample from posterior and each weight in weight.seq
+mu <- link(mod2, data = data.frame(weight = preds$weight))
+
+# summarise mu distribution
+mu.HPDI <- data.frame(t(apply(mu, 2, HPDI, prob = 0.95))) 
+colnames(mu.HPDI) <- c('low_95', 'high_95')
+preds <- mutate(preds, mean_mu = apply(mu, 2, mean))
+
+# posterior prediction incorporating SD and its uncertainty
+# simulate heights
+sim_height <- rethinking::sim(mod2, data = list(weight = preds$weight))
+height_PI <- data.frame(t(apply(sim_height, 2, PI, prob = 0.95))) 
+colnames(height_PI) <- c('low_95_PI', 'high_95_PI')
+
+preds <- cbind(preds, mu.HPDI, height_PI)
+
+# plot mean predictions
+plot_posterior <- ggplot() +
+  geom_point(aes(weight, height), alpha = 0.75, d) +
+  geom_line(aes(weight, mean_mu), col = 'blue', preds) +
+  geom_ribbon(aes(x = weight, ymin = low_95, ymax = high_95), fill = 'blue', alpha = 0.25, preds)
+
+# plot posterior predictions
+preds <- cbind(preds, height_PI)
+plot_postpredictions <- ggplot() +
+  geom_point(aes(weight, height), alpha = 0.75, d) +
+  geom_line(aes(weight, mean_mu), col = 'blue', preds) +
+  geom_ribbon(aes(x = weight, ymin = low_95_PI, ymax = high_95_PI), fill = 'blue', alpha = 0.25, preds)
+
+gridExtra::grid.arrange(plot_posterior, plot_postpredictions, ncol = 2)
+
+
+```
+
+#### look at whether the logarithm of body weight scales with height
+
+$$ h_i \sim Normal(\mu_i, \sigma)$$
+$$\mu_i = \alpha + \beta log(w_i)$$
+$$alpha \sim Normal(178,10)$$
+$$\beta \sim Normal(0,100)$$
+$$\sigma \sim Uniform(0,50)$$
+
+```{r}
+model <- rethinking::map(alist(
+  height ~ dnorm(mu, sigma),
+  mu <- a + b*log(weight),
+  a ~ dnorm(178,10),
+  b ~ dnorm(0,100),
+  sigma ~ dunif(0,50)
+),
+data = Howell1)
+
+# view model output
+precis(model)
+
+# plot predictions
+preds <- data.frame(weight = seq(min(d$weight), max(d$weight), by = 0.1))
+
+# use link to compute mu for each sample from posterior and each weight in weight.seq
+mu <- link(model, data = data.frame(weight = preds$weight))
+
+# summarise mu distribution
+mu.HPDI <- data.frame(t(apply(mu, 2, HPDI, prob = 0.95))) 
+colnames(mu.HPDI) <- c('low_95', 'high_95')
+preds <- mutate(preds, mean_mu = apply(mu, 2, mean))
+
+# posterior prediction incorporating SD and its uncertainty
+# simulate heights
+sim_height <- rethinking::sim(model, data = list(weight = preds$weight))
+height_PI <- data.frame(t(apply(sim_height, 2, PI, prob = 0.95))) 
+colnames(height_PI) <- c('low_95_PI', 'high_95_PI')
+
+preds <- cbind(preds, mu.HPDI, height_PI)
+
+# plot mean predictions
+plot_posterior <- ggplot() +
+  geom_point(aes(weight, height), alpha = 0.75, d) +
+  geom_line(aes(weight, mean_mu), col = 'blue', preds) +
+  geom_ribbon(aes(x = weight, ymin = low_95, ymax = high_95), fill = 'blue', alpha = 0.25, preds)
+
+# plot posterior predictions
+preds <- cbind(preds, height_PI)
+plot_postpredictions <- ggplot() +
+  geom_point(aes(weight, height), alpha = 0.75, d) +
+  geom_line(aes(weight, mean_mu), col = 'blue', preds) +
+  geom_ribbon(aes(x = weight, ymin = low_95_PI, ymax = high_95_PI), fill = 'blue', alpha = 0.25, preds)
+
+gridExtra::grid.arrange(plot_posterior, plot_postpredictions, ncol = 2)
+
+
+```
+
+# Chapter 5
+
+#### Medium Questions
+
+##### Invent your own examples of a spurious correlation. An outcome variable should be correlated with both predictor variables. But when both predictors are entered in the same model, the correlation between the outcome and one of the predictors should mostly vanish (or at least greatly reduce).
+
+```{r}
+# create dummy data set, y, x and z
+N <- 100
+spur <- data.frame(x_real = rnorm(100)) %>% # x_real as Gaussian with mean 0 and stdev 1
+  mutate(x_spur = rnorm(100, x_real, sd = 2), # x_spur with mean=x_real but a larger stdev
+         y = rnorm(N, x_real, sd = 0.5)) # y as Gaussian with mean x_real
+
+# model in lm to see separate relationships
+fit1 <- lm(y ~ x_real, spur)
+fit2 <- lm(y ~ x_spur, spur)
+coef(fit1)
+coef(fit2)
+
+# create bayesian predictor model
+bayes_mod <- rethinking::map(alist(
+  y ~ dnorm(mu, sigma),
+  mu <- a + b_spur*x_spur + b_real*x_real,
+  a ~ dnorm(0,10),
+  b_spur ~ dnorm(0,10),
+  b_real ~ dnorm(0,10),
+  sigma ~ dunif(0,10)
+), data = spur)
+
+precis(bayes_mod)
+
+plot(precis(bayes_mod))
+
+```
+
+#### Hard
+
+##### Fit two bivariate Guassian regressions, using map: (1) body weight as a linear function of territory size and (2) body weight as a linear fucntion of group size. Plot the results of these regressions, displaying the map regression line and the 95% interval of the mean. Is either variable important for predicting fox body weight?
+
+```{r, fig.height=5, fig.width=10}
+data(foxes)
+colnames(foxes)
+# first regression - body weight ~ territory size
+mod1 <- rethinking::map(alist(
+  weight ~ dnorm(mu, sigma),
+  mu <- a + b_area*area,
+  b_area ~ dnorm(0,10),
+  a ~ dnorm(0,10),
+  sigma ~ dunif(0,50)
+), foxes)
+
+# sample and plot interval of mean
+preds <- data.frame(area = seq(min(foxes$area), max(foxes$area), by = 0.3))
+
+# use link to compute mu for each sample from posterior and each weight in weight.seq
+mu <- link(mod1, data = preds)
+# summarise mu distribution
+mu.HPDI <- data.frame(t(apply(mu, 2, HPDI, prob = 0.95))) 
+colnames(mu.HPDI) <- c('low_95', 'high_95')
+preds <- mutate(preds, mean_mu = apply(mu, 2, mean))
+preds <- cbind(preds, mu.HPDI)
+
+# plot mean predictions
+plot_area <- ggplot() +
+  geom_point(aes(area, weight), alpha = 0.75, foxes) +
+  geom_line(aes(area, mean_mu), col = 'orange', preds) +
+  geom_ribbon(aes(x = area, ymin = low_95, ymax = high_95), fill = 'orange', alpha = 0.25, preds)
+
+# second regression - body weight ~ group size
+mod2 <- rethinking::map(alist(
+  weight ~ dnorm(mu, sigma),
+  mu <- a + b_groupsize*groupsize,
+  b_groupsize ~ dnorm(0,10),
+  a ~ dnorm(0,10),
+  sigma ~ dunif(0,50)
+), foxes)
+
+# sample and plot interval of mean
+preds <- data.frame(groupsize = seq(min(foxes$groupsize), max(foxes$groupsize), by = 0.3))
+
+# use link to compute mu for each sample from posterior and each weight in weight.seq
+mu <- link(mod2, data = preds)
+# summarise mu distribution
+mu.HPDI <- data.frame(t(apply(mu, 2, HPDI, prob = 0.95))) 
+colnames(mu.HPDI) <- c('low_95', 'high_95')
+preds <- mutate(preds, mean_mu = apply(mu, 2, mean))
+preds <- cbind(preds, mu.HPDI)
+
+# plot mean predictions
+plot_groupsize <- ggplot() +
+  geom_point(aes(groupsize, weight), alpha = 0.75, foxes) +
+  geom_line(aes(groupsize, mean_mu), col = 'orange', preds) +
+  geom_ribbon(aes(x = groupsize, ymin = low_95, ymax = high_95), fill = 'orange', alpha = 0.25, preds)
+
+gridExtra::grid.arrange(plot_area, plot_groupsize, ncol = 2)
+
+```
+
+##### Now fit a multiple linear regression with weight as the outcome and both area and groupsize as predictor variables. Plot the predictions of the model for each predictor, holding the other predictor constant at its mean. What does this say about the importance of each variable? Why do you get different results than you got in the exercise above?
+
+```{r, fig.height=5, fig.width=10}
+# multiple regression with bost parameters
+model <- rethinking::map(
+  alist(weight ~ dnorm(mu, sigma),
+        mu <- a + b_area*area + b_groupsize*groupsize,
+        a ~ dnorm(0,10),
+        b_area ~ dnorm(0,10),
+        b_groupsize ~ dnorm(0,10),
+        sigma ~ dunif(0,50)),
+        data = foxes)
+
+precis(model)
+
+# plot effect of area at mean groupsize ####
+preds_area <- data.frame(area = seq(min(foxes$area), max(foxes$area), 0.1),
+                         groupsize = mean(foxes$groupsize))
+
+# use link to compute mu for each sample from posterior and each weight in weight.seq
+mu <- link(model, data = preds_area)
+# summarise mu distribution
+mu.HPDI <- data.frame(t(apply(mu, 2, HPDI, prob = 0.95))) 
+colnames(mu.HPDI) <- c('low_95', 'high_95')
+preds_area <- mutate(preds_area, mean_mu = apply(mu, 2, mean))
+preds_area <- cbind(preds_area, mu.HPDI)
+
+# plot mean predictions
+plot_area <- ggplot() +
+  geom_point(aes(area, weight), alpha = 0.75, foxes) +
+  geom_line(aes(area, mean_mu), col = 'orange', preds_area) +
+  geom_ribbon(aes(x = area, ymin = low_95, ymax = high_95), fill = 'orange', alpha = 0.25, preds_area)
+
+# plot effect of groupsize at mean area
+preds_groupsize <- data.frame(area = mean(foxes$area),
+                         groupsize = seq(min(foxes$groupsize), max(foxes$groupsize), by = 0.5))
+
+# use link to compute mu for each sample from posterior and each weight in weight.seq
+mu <- link(model, data = preds_groupsize)
+# summarise mu distribution
+mu.HPDI <- data.frame(t(apply(mu, 2, HPDI, prob = 0.95))) 
+colnames(mu.HPDI) <- c('low_95', 'high_95')
+preds_groupsize <- mutate(preds_groupsize, mean_mu = apply(mu, 2, mean))
+preds_groupsize <- cbind(preds_groupsize, mu.HPDI)
+
+# plot mean predictions
+plot_groupsize <- ggplot() +
+  geom_point(aes(groupsize, weight), alpha = 0.75, foxes) +
+  geom_line(aes(groupsize, mean_mu), col = 'orange', preds_groupsize) +
+  geom_ribbon(aes(x = groupsize, ymin = low_95, ymax = high_95), fill = 'orange', alpha = 0.25, preds_groupsize)
+
+gridExtra::grid.arrange(plot_area, plot_groupsize, ncol = 2)
+
+```
+
+Both area and groupsize are important for determining fox body weight, but area is more important than group size. This is an example of a masking relationship. Because area and groupsize are very strongly positively correlated, and one negatively correlates and one negatively correlates with body weight, they cancel each other out when analysed separately.
+
+# Chapter 6
+
+## Easy
+
+The three motivating criteria of information entropy are as follows:
+
+- The measure of uncertainty should be continuous.
+- The measure of uncertainty should increase as the number of possible events increases.
+- The measure of uncertainty should be additive.
+
+A coin is weighted such that, when it is tossed, it comes up heads 70% of the time. The entropy of this coin is 
+$$H(p) = -(p_{heads}*log(p_{heads}) + p_{tails}*log(p_{tails}))$$
+
+```{r}
+p <- c(0.3, 0.7)
+-sum(p*log(p))
+```
+
+A four sided die is loaded such that it shows "1" 20% of the time, "2" 25% of the time, "3" 25% of the time and "4" 30% of the time. The entropy of this time is:
+$$H(p) = -(p_1*log(p_1) + p_2*log(p_2) + p_3*log(p_3) + p_4*log(p_4))$$
+
+```{r}
+p <- c(0.2, 0.25, 0.25, 0.3)
+-sum(p*log(p))
+```
+
+## Medium
+
+AIC is the most well know information criterion but assume flat priors. DIC is essentially AIC but is aware of informative priors. WAIC also takes averages of log likelihood over the posterior distribution but does not require multiple Gaussian posteriors. WAIC is also pointwise, meaning that uncertianty in prediction is considered on a point by point basis.
+
+Model selection is the choosing of a best model across an ensemble of models. This is usually based on the lowest score of the information criterion used and a gap of around 2 points has traditionally been used for a significance level. However, model selection discards information about relative model accuracy contained in the differences among the scores of AIC/DIC/WAIC. Relative model accuracy provides advice about how confident we might be about models.
+
+Model averaging preserves the uncertainty across an ensemble of models. Model averaging uses Akaike weights as plausibilities of how well a model will do in prediction and thus preserves uncertainty of each model when generating predictions. Model averaging can make parameters hard to interpret however.
+
+
+
+If the models being compared are fit to a different number of observations, the the fit of the model with more observations will almost certainly be better because it has been asked to predict less.
+
+
+# Chapter 7
+
+## Hard 1 and 2 Refit the data(tulips) example with bed as a predictor
+
+```{r}
+# load data Tulips - look at how water and shade effect number of blooms
+data(tulips)
+
+# centre data - subtract mean value from each value - new data has mean of 0
+d <- mutate(tulips,
+            shade_c = shade - mean(shade),
+            water_c = water - mean(water),
+            bed_c = plyr::mapvalues(bed, from = c('a', "b", "c"), to = c("0", "1", "2")))
+
+# quick plot of data
+ggplot() +
+  geom_point(aes(bed_c, blooms), d)
+
+# model 1 - with interaction between water and shade
+model1 <- rethinking::map(
+  alist(
+    blooms ~ dnorm(mu, sigma),
+    mu <- a + bW*water_c + bS*shade_c + bWS*water_c*shade_c,
+    a ~ dnorm(130, 100),
+    bW ~ dnorm(0, 100),
+    bS ~ dnorm(0, 100),
+    bWS ~ dnorm(0, 100),
+    sigma ~ dunif(0, 100)
+  ),
+  data = d,
+  start = list(a = mean(d$blooms), bW = 0, bS = 0, bWS = 0, sigma = sd(d$blooms))
+)
+
+# model 2 - with bed as a predictor
+model2 <- rethinking::map(
+  alist(
+    blooms ~ dnorm(mu, sigma),
+    mu <- a + bW*water_c + bS*shade_c + bWS*water_c*shade_c + bB[bed],
+    a ~ dnorm(130, 100),
+    bW ~ dnorm(0, 100),
+    bS ~ dnorm(0, 100),
+    bWS ~ dnorm(0, 100),
+    bB[bed] ~ dnorm(0,100),
+    sigma ~ dunif(0, 100)
+  ),
+  data = d,
+  start = list(a = mean(d$blooms), bW = 0, bS = 0, bWS = 0, bB = 0, sigma = sd(d$blooms)),
+  method = "Nelder-Mead",
+  control = list(maxit = 1e5))
+
+precis(model2, depth = 2)
+  
+# compare models
+compare(model1, model2)
+
+```
+
+The model with `bed` as a predictor is much worse at prediction compared to the model without it. This is because there is lots of overlap between values of blooms between beds. This can be seen in the large standard deviations of the posteriors of each bed.
+
+## Hard c Fit three models to the Tulips data and create ensemble predictions of the results
+
+```{r}
+data(rugged)
+
+d <- mutate(rugged,
+            log_gdp = log(rgdppc_2000),
+            cont = ifelse(cont_africa == 1, 'Africa', "Not Africa")) %>%
+  drop_na(., log_gdp)
+
+# remove data point 'Seychelles' as it has high GDP and high ruggedness
+d <- filter(d, country != 'Seychelles')
+
+# model 1 - just ruggedness
+model1 <- rethinking::map(
+  alist(log_gdp ~ dnorm(mu, sigma),
+        mu <- a + bR*rugged,
+        a ~ dnorm(0,100),
+        bR ~ dnorm(0,1),
+        sigma ~ dunif(0,10)),
+  data = d
+)
+
+# model 2 - GDP vs ruggedness + continent
+model2 <- rethinking::map(
+  alist(log_gdp ~ dnorm(mu, sigma),
+        mu <- a + bR*rugged + bA*cont_africa,
+        a ~ dnorm(8,100),
+        bR ~ dnorm(0,1),
+        bA ~ dnorm(0,1),
+        sigma ~ dunif(0,10)
+  ),
+  data = d
+)
+
+# model 3 - GDP vs ruggedness*continent
+model3 <- rethinking::map(
+  alist(log_gdp ~ dnorm(mu, sigma),
+        mu <- a + bR*rugged + bA*cont_africa + bAR*cont_africa*rugged,
+        a ~ dnorm(8,100),
+        bR ~ dnorm(0,1),
+        bA ~ dnorm(0,1),
+        bAR ~ dnorm(0,1),
+        sigma ~ dunif(0,10)
+  ),
+  data = d
+)
+
+# compare models
+compare(model1, model2, model3)
+
+# model average predictions
+p <- data.frame(expand.grid(rugged = seq(min(d$rugged), max(d$rugged), by = 0.1), cont_africa = c(0,1)))
+ens <- ensemble(model1, model2, model3, data = p)
+p$mu <- apply(ens$link, 2, mean)
+p$PI_low <- t(apply(ens$link, 2, PI, prob = 0.95))[,1]
+p$PI_high <- t(apply(ens$link, 2, PI, prob = 0.95))[,2]
+p$cont <- ifelse(p$cont_africa  == 1, 'Africa', 'Not Africa')
+
+# plot
+ggplot() +
+  geom_point(aes(rugged, log_gdp), data = d) +
+  geom_line(aes(rugged, mu), col = 'blue', p) +
+  geom_ribbon(aes(x = rugged, ymin = PI_low, ymax = PI_high), fill = 'blue', alpha = 0.25, p) +
+  facet_wrap(~ cont)
+
+```
+
+
+
+
