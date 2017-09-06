@@ -1,8 +1,8 @@
 ---
 title: "Statistical rethinking"
 output:
-  html_document: default
   html_notebook: default
+  html_document: default
 ---
 
 This is my workbook as I read through Statistical Rethinking : A Bayesian course with examples in R and Stan.
@@ -1138,4 +1138,92 @@ ggplot() +
 ```
 ### Chapter 9 Big Entropy and the Generalized Linear Model
 
+This chapter serves as a conceptual introduction to generalized linear models and the principle of maximum entropy. 
 
+### Chapter 10 Counting and Classification
+
+Working through a binomial, logistic regression based on prosociality of chimpanzees.
+
+```{r}
+data(chimpanzees)
+d <- chimpanzees
+```
+
+About generalized linear models.
+
+The experiment looks at which lever (right or left) a chimpanzee pulls. One of the levers returns food items to both sides of the table whereas one of the levers returns food to only one side. We are interested in investigating whether having a chimpanzee on the other side of the table increases the probability that a chimpanzee pulls the lever that releases two food items.
+
+This gives the simplest model of an intercept that can predict lever pulls (specifically whether the left lever was pulled) based on only `prosoc_left`, whether or not the left hand lever was (1) or was not (0) attached to the prosocial option, the side with two pieces of food. 
+
+Simplest model:
+
+$$L_{i} ~ Binomial(1, p_{i})$$
+$$logit(p_{i} = \alpha)$$
+$$\alpha ~ Normal(0,10$$
+
+Firstly we will fit this most simple model in stan using map2stan().
+
+```{r, message = FALSE, results='hide'}
+# load in chimpanzee data
+data("chimpanzees")
+
+m10.1 <- rethinking::map(
+  alist(
+    pulled_left ~dbinom(1,p),
+    logit(p) <- a,
+    a ~ dnorm(0,10)
+  ),
+  data = chimpanzees
+)
+
+m10.1 <- map2stan(m10.1, data = chimpanzees, iter = 1e4, warmup = 1000)
+
+```
+
+```{r}
+precis(m10.1)
+
+```
+
+We can fit the equivalent model purely in stan.
+
+```{r, message=FALSE, warning=FALSE, results='hide'}
+model_code <- '
+data{
+    int<lower=1> N;
+    int pulled_left[N];
+}
+parameters{
+    real a;
+}
+model{
+    vector[N] p;
+    a ~ normal( 0 , 10 );
+    for ( i in 1:N ) {
+        p[i] = a;
+    }
+    pulled_left ~ binomial_logit( 1 , p );
+}
+generated quantities{
+    vector[N] p;
+    real dev;
+    dev = 0;
+    for ( i in 1:N ) {
+        p[i] = a;
+    }
+    dev = dev + (-2)*binomial_logit_lpmf( pulled_left | 1 , p );
+}'
+
+# set up data list
+stan_datalist <- list(N = nrow(d), pulled_left = d$pulled_left)
+
+# set up start values
+start <- function() list(a = 1, sigma = 1)
+
+model_stan <- stan(model_code = model_code, data = stan_datalist, init = start, iter = 1e4, chains = 3)
+
+```
+
+```{r}
+traceplot(model_stan, c('a'))
+```
